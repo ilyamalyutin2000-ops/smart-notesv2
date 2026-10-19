@@ -29,23 +29,27 @@ if platform == 'android':
     from android.permissions import request_permissions, Permission
 
 # ============================================================
-# НАСТРОЙКИ (Ключи)
+# НАСТРОЙКИ
 # ============================================================
 OCR_API_KEY = "K86772432188957"
 GROQ_API_KEY = "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"
 
 # ============================================================
-# ПУТИ
+# ПУТИ (с защитой)
 # ============================================================
 def get_data_path(folder_name):
-    if platform == 'android':
-        from android.storage import app_storage_path
-        base = app_storage_path()
-    else:
-        base = os.getcwd()
-    path = os.path.join(base, folder_name)
-    os.makedirs(path, exist_ok=True)
-    return path
+    try:
+        if platform == 'android':
+            from android.storage import app_storage_path
+            base = app_storage_path()
+        else:
+            base = os.getcwd()
+        path = os.path.join(base, folder_name)
+        os.makedirs(path, exist_ok=True)
+        return path
+    except Exception as e:
+        print(f"Ошибка пути: {e}")
+        return "."
 
 NOTES_FOLDER = get_data_path("notes")
 
@@ -396,7 +400,7 @@ class MainScreen(Screen):
                 raw = recognize_photo(path)
                 ready = clean_text(raw)
                 save_note(ready)
-                self.update_photo_result(ready, 'Готово! Сохранено в Историю.')
+                self.update_photo_result(ready, 'Готово! Сохранено.')
             except Exception as e:
                 self.update_photo_result(f'Ошибка: {e}', 'Ошибка')
         threading.Thread(target=worker, daemon=True).start()
@@ -594,7 +598,7 @@ if platform == 'android':
                 return None
 
 # ============================================================
-# API И ХРАНЕНИЕ
+# API И ХРАНЕНИЕ (ЗАЩИЩЕННЫЕ)
 # ============================================================
 def clean_text(raw_text):
     if not raw_text: return ""
@@ -619,29 +623,45 @@ def recognize_photo(filepath):
     return result.get('ParsedResults', [{}])[0].get('ParsedText', '')
 
 def save_note(text):
-    note_id = datetime.now().strftime("%Y%m%d_%H%M%S%f")
-    title = text.strip().split('\n')[0][:40]
-    data = {"id": note_id, "title": title, "date": datetime.now().strftime("%d.%m.%Y"), "text": text}
-    with open(os.path.join(NOTES_FOLDER, f"{note_id}.json"), 'w', encoding='utf-8') as f: json.dump(data, f, ensure_ascii=False)
+    try:
+        note_id = datetime.now().strftime("%Y%m%d_%H%M%S%f")
+        title = text.strip().split('\n')[0][:40]
+        data = {"id": note_id, "title": title, "date": datetime.now().strftime("%d.%m.%Y"), "text": text}
+        with open(os.path.join(NOTES_FOLDER, f"{note_id}.json"), 'w', encoding='utf-8') as f: json.dump(data, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"Ошибка сохранения: {e}")
 
 def update_note(note_id, new_text):
-    path = os.path.join(NOTES_FOLDER, f"{note_id}.json")
-    if os.path.exists(path):
-        with open(path, 'r', encoding='utf-8') as f: data = json.load(f)
-        data['text'] = new_text
-        data['title'] = new_text.strip().split('\n')[0][:40]
-        with open(path, 'w', encoding='utf-8') as f: json.dump(data, f, ensure_ascii=False)
+    try:
+        path = os.path.join(NOTES_FOLDER, f"{note_id}.json")
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f: data = json.load(f)
+            data['text'] = new_text
+            data['title'] = new_text.strip().split('\n')[0][:40]
+            with open(path, 'w', encoding='utf-8') as f: json.dump(data, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"Ошибка обновления: {e}")
 
 def delete_note(note_id):
-    path = os.path.join(NOTES_FOLDER, f"{note_id}.json")
-    if os.path.exists(path): os.remove(path)
+    try:
+        path = os.path.join(NOTES_FOLDER, f"{note_id}.json")
+        if os.path.exists(path): os.remove(path)
+    except Exception as e:
+        print(f"Ошибка удаления: {e}")
 
 def get_all_notes():
     notes = []
-    if not os.path.exists(NOTES_FOLDER): return notes
-    for fname in sorted(os.listdir(NOTES_FOLDER), reverse=True):
-        if fname.endswith('.json'):
-            with open(os.path.join(NOTES_FOLDER, fname), 'r', encoding='utf-8') as f: notes.append(json.load(f))
+    try:
+        if not os.path.exists(NOTES_FOLDER): return notes
+        for fname in sorted(os.listdir(NOTES_FOLDER), reverse=True):
+            if fname.endswith('.json'):
+                try:
+                    with open(os.path.join(NOTES_FOLDER, fname), 'r', encoding='utf-8') as f: 
+                        notes.append(json.load(f))
+                except Exception as e:
+                    print(f"Битый файл {fname}: {e}")
+    except Exception as e:
+        print(f"Ошибка чтения папки: {e}")
     return notes
 
 def find_relevant_notes(question):
@@ -690,13 +710,20 @@ def answer_question(messages):
 class NotesApp(App):
     def on_start(self):
         if platform == 'android':
-            request_permissions([Permission.READ_EXTERNAL_STORAGE, Permission.WRITE_EXTERNAL_STORAGE])
+            try:
+                request_permissions([Permission.READ_EXTERNAL_STORAGE, Permission.WRITE_EXTERNAL_STORAGE])
+            except:
+                pass
 
     def build(self):
-        Builder.load_string(KV)
-        sm = ScreenManager()
-        sm.add_widget(MainScreen(name='main'))
-        return sm
+        try:
+            Builder.load_string(KV)
+            sm = ScreenManager()
+            sm.add_widget(MainScreen(name='main'))
+            return sm
+        except Exception as e:
+            print(f"Критическая ошибка при сборке UI: {e}")
+            # Если UI сломался, покажем простой текст
+            return Label(text=f"Ошибка приложения: {e}")
 
-if __name__ == "__main__":
-    NotesApp().run()
+if
